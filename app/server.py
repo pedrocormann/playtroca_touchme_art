@@ -8,9 +8,11 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 log = logging.getLogger(__name__)
 
 
-def create_app(config, sampler, midi_listener, samples_dir: Path) -> Flask:
+def create_app(config, sampler, midi_listener, samples_dir: Path, presets=None) -> Flask:
     app = Flask(__name__)
     app.config["JSON_SORT_KEYS"] = False
+
+    from preset_manager import PRESET_KEYS
 
     @app.route("/")
     def index():
@@ -42,11 +44,51 @@ def create_app(config, sampler, midi_listener, samples_dir: Path) -> Flask:
     def set_globals():
         data = request.get_json(force=True) or {}
         applied = {}
-        for k in ("retrigger_cooldown_seconds", "release_fade_ms", "max_play_seconds", "master_volume"):
+        # master_volume is intentionally read-only on the Pi (always 1.0)
+        for k in ("retrigger_cooldown_seconds", "release_fade_ms", "max_play_seconds"):
             if k in data:
                 config.set_global(k, float(data[k]))
                 applied[k] = config.get_global(k)
         return jsonify({"ok": True, "applied": applied})
+
+    # ── presets ───────────────────────────────────────────────────────────
+    @app.route("/api/presets", methods=["GET"])
+    def list_presets():
+        return jsonify({"presets": presets.list() if presets else []})
+
+    @app.route("/api/presets", methods=["POST"])
+    def save_preset():
+        if presets is None:
+            return jsonify({"ok": False, "error": "presets disabled"}), 400
+        body = request.get_json(silent=True) or {}
+        # Snapshot the current playback-behavior globals
+        values = {k: config.get_global(k) for k in PRESET_KEYS}
+        try:
+            entry = presets.save(values, name=body.get("name"))
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "preset": entry})
+
+    @app.route("/api/presets/<name>/load", methods=["POST"])
+    def load_preset(name: str):
+        if presets is None:
+            return jsonify({"ok": False, "error": "presets disabled"}), 400
+        data = presets.get(name)
+        if data is None:
+            return jsonify({"ok": False, "error": "not found"}), 404
+        applied = {}
+        for k in PRESET_KEYS:
+            if k in data:
+                config.set_global(k, float(data[k]))
+                applied[k] = config.get_global(k)
+        return jsonify({"ok": True, "applied": applied})
+
+    @app.route("/api/presets/<name>", methods=["DELETE"])
+    def delete_preset(name: str):
+        if presets is None:
+            return jsonify({"ok": False, "error": "presets disabled"}), 400
+        ok = presets.delete(name)
+        return jsonify({"ok": ok})
 
     @app.route("/api/test/<int:note>", methods=["POST"])
     def test_note(note: int):

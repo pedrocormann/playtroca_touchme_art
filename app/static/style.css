@@ -153,6 +153,45 @@ main#pads {
 }
 .pad-actions button { flex: 1; font-size: 0.85rem; padding: 0.4rem; }
 
+.presets {
+  padding: 1.25rem 2rem;
+  border-top: 1px solid var(--surface-2);
+}
+.presets header { margin-bottom: 0.75rem; }
+.presets h2 {
+  font-family: ui-serif, "Iowan Old Style", Georgia, serif;
+  font-weight: 500;
+  font-size: 1.2rem;
+  margin: 0;
+}
+.presets p { color: var(--muted); margin: 0.25rem 0 0; font-size: 0.85rem; }
+.presets-list {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  margin-top: 0.75rem;
+}
+.presets-empty { color: var(--muted); font-size: 0.85rem; }
+.preset {
+  background: var(--surface);
+  border: 1px solid var(--surface-2);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.preset-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.preset-name { font-family: ui-monospace, monospace; color: var(--accent); font-size: 0.95rem; }
+.preset-meta { color: var(--muted); font-size: 0.7rem; }
+.preset-values {
+  display: flex; gap: 0.75rem; flex-wrap: wrap;
+  font-size: 0.8rem; color: var(--muted);
+}
+.preset-values strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.preset-actions { display: flex; gap: 0.4rem; }
+.preset-actions button { flex: 1; padding: 0.35rem; font-size: 0.85rem; }
+
 footer {
   padding: 1rem 2rem;
   color: var(--muted);

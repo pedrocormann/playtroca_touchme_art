@@ -20,11 +20,6 @@
 
   <section class="globals">
     <div class="control">
-      <label for="master-volume">Volume mestre</label>
-      <input type="range" id="master-volume" min="0" max="1" step="0.01" value="1">
-      <output id="master-volume-out">100%</output>
-    </div>
-    <div class="control">
       <label for="cooldown" title="Tempo mínimo até o mesmo áudio poder disparar de novo">
         Lockout entre toques (mesmo som)
       </label>
@@ -32,13 +27,11 @@
       <output id="cooldown-out">2.0 s</output>
     </div>
     <div class="control">
-      <div class="control-row">
-        <label for="fade-ms" title="Quando o visitante solta o pad, fade-out em N ms">
-          Fade-out ao soltar
-        </label>
-        <input type="range" id="fade-ms" min="100" max="10000" step="100" value="5000">
-        <output id="fade-ms-out">5.0 s</output>
-      </div>
+      <label for="fade-ms" title="Quando o visitante solta o pad, fade-out em N ms">
+        Fade-out ao soltar
+      </label>
+      <input type="range" id="fade-ms" min="100" max="10000" step="100" value="5000">
+      <output id="fade-ms-out">5.0 s</output>
     </div>
     <div class="control">
       <label for="max-play" title="Tempo máximo que um áudio toca mesmo se o visitante segurar">
@@ -48,9 +41,18 @@
       <output id="max-play-out">20 s</output>
     </div>
     <div class="globals-buttons">
+      <button class="primary" id="save-preset">💾 Salvar configurações</button>
       <button id="shuffle-groups">🎲 Embaralhar grupos</button>
       <button class="danger" id="stop-all">Parar tudo</button>
     </div>
+  </section>
+
+  <section class="presets" id="presets-section">
+    <header>
+      <h2>Configurações salvas</h2>
+      <p>Cada slot guarda o lockout, fade e duração máxima atuais. Master volume fica sempre no máximo.</p>
+    </header>
+    <div id="presets-list" class="presets-list"></div>
   </section>
 
   <main id="pads"></main>

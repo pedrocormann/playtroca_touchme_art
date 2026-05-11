@@ -24,8 +24,9 @@ env/
 # Generated audio (built from samples/sources via tools/build_samples.sh)
 samples/wav/
 
-# Runtime config — lives on the Pi only, never committed
+# Runtime config — lives on the Pi/Mac only, never committed
 app/config.json
+app/config.local.json
 
 # Secrets / local config
 .env

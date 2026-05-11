@@ -5,8 +5,6 @@ const padsEl = document.getElementById("pads");
 const midiNameEl = document.getElementById("midi-name");
 const midiDotEl = document.getElementById("midi-dot");
 const sampleCountEl = document.getElementById("sample-count");
-const masterEl = document.getElementById("master-volume");
-const masterOutEl = document.getElementById("master-volume-out");
 const cooldownEl = document.getElementById("cooldown");
 const cooldownOutEl = document.getElementById("cooldown-out");
 const fadeMsEl = document.getElementById("fade-ms");
@@ -141,8 +139,6 @@ async function init() {
   GROUPS = gRes.groups;
   SAMPLES_BY_GROUP = gRes.samples_by_group;
 
-  masterEl.value = config.master_volume ?? 1;
-  masterOutEl.textContent = `${Math.round((config.master_volume ?? 1) * 100)}%`;
   cooldownEl.value = config.retrigger_cooldown_seconds ?? 2;
   cooldownOutEl.textContent = fmtSec(cooldownEl.value);
   fadeMsEl.value = config.release_fade_ms ?? 5000;
@@ -165,8 +161,6 @@ function postGlobal(key, value) {
   });
 }
 
-masterEl.addEventListener("input", () => { masterOutEl.textContent = `${Math.round(masterEl.value * 100)}%`; });
-masterEl.addEventListener("change", () => postGlobal("master_volume", parseFloat(masterEl.value)));
 cooldownEl.addEventListener("input", () => { cooldownOutEl.textContent = fmtSec(cooldownEl.value); });
 cooldownEl.addEventListener("change", () => postGlobal("retrigger_cooldown_seconds", parseFloat(cooldownEl.value)));
 fadeMsEl.addEventListener("input", () => { fadeMsOutEl.textContent = fmtMsAsSec(fadeMsEl.value); });
@@ -180,6 +174,67 @@ document.getElementById("shuffle-groups").addEventListener("click", async () => 
   await fetchJSON("/api/shuffle", { method: "POST" });
   init();
 });
+
+// ── Presets ────────────────────────────────────────────────────────────
+const presetsListEl = document.getElementById("presets-list");
+
+async function refreshPresets() {
+  try {
+    const { presets } = await fetchJSON("/api/presets");
+    presetsListEl.innerHTML = "";
+    if (!presets.length) {
+      presetsListEl.innerHTML = `<p class="presets-empty">Nenhuma configuração salva ainda. Ajuste os sliders acima e clique em <em>Salvar configurações</em>.</p>`;
+      return;
+    }
+    for (const p of presets) {
+      const card = document.createElement("div");
+      card.className = "preset";
+      const v = p.values || {};
+      card.innerHTML = `
+        <div class="preset-head">
+          <span class="preset-name">${p.name}</span>
+          <span class="preset-meta">${new Date(p.saved_at * 1000).toLocaleString("pt-BR")}</span>
+        </div>
+        <div class="preset-values">
+          <span>lockout <strong>${(v.retrigger_cooldown_seconds ?? 0).toFixed(1)}s</strong></span>
+          <span>fade <strong>${((v.release_fade_ms ?? 0) / 1000).toFixed(1)}s</strong></span>
+          <span>max <strong>${Math.round(v.max_play_seconds ?? 0)}s</strong></span>
+        </div>
+        <div class="preset-actions">
+          <button class="primary load-btn">aplicar</button>
+          <button class="danger delete-btn">remover</button>
+        </div>`;
+      card.querySelector(".load-btn").addEventListener("click", async () => {
+        await fetchJSON(`/api/presets/${encodeURIComponent(p.name)}/load`, { method: "POST" });
+        init();
+      });
+      card.querySelector(".delete-btn").addEventListener("click", async () => {
+        if (!confirm(`Remover "${p.name}"?`)) return;
+        await fetchJSON(`/api/presets/${encodeURIComponent(p.name)}`, { method: "DELETE" });
+        refreshPresets();
+      });
+      presetsListEl.appendChild(card);
+    }
+  } catch (e) { /* ignore */ }
+}
+
+document.getElementById("save-preset").addEventListener("click", async () => {
+  const res = await fetchJSON("/api/presets", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (res?.preset?.name) {
+    // small visual ping
+    const btn = document.getElementById("save-preset");
+    const orig = btn.textContent;
+    btn.textContent = `✓ salvo como ${res.preset.name}`;
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  }
+  refreshPresets();
+});
+
+refreshPresets();
 
 init().catch(e => {
   padsEl.innerHTML = `<p style="color:#c8654c">Erro ao carregar: ${e.message}</p>`;

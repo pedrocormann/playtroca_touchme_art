@@ -10,6 +10,7 @@ from pathlib import Path
 from config import Config
 from sampler import Sampler
 from midi_listener import MidiListener
+from preset_manager import PresetManager
 from server import create_app
 
 
@@ -19,6 +20,8 @@ def parse_args():
                    help="Directory with .wav samples")
     p.add_argument("--config", default=os.environ.get("PLAYTRONICA_CONFIG", "app/config.json"),
                    help="Path to config.json")
+    p.add_argument("--presets", default=os.environ.get("PLAYTRONICA_PRESETS", "app/presets"),
+                   help="Directory holding named preset JSON files")
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, default=8080)
     p.add_argument("--midi-hint", default=os.environ.get("PLAYTRONICA_MIDI_HINT", "TouchMe"))
@@ -44,9 +47,15 @@ def main():
     log.info("  midi hint:   %s", args.midi_hint)
 
     config = Config(config_path)
+    # Master volume on the Pi is locked at maximum — audio is normalized at the
+    # ALSA layer (audio-max.service) and we don't expose master_volume in the UI.
+    config.set_global("master_volume", 1.0)
+
     sampler = Sampler(samples_dir, config)
     sampler.init()
     sampler.preload_all()
+
+    presets = PresetManager(Path(args.presets).resolve())
 
     # If no pad has been manually mapped yet, auto-assign groups round-robin.
     groups = sampler.list_groups()
@@ -66,7 +75,7 @@ def main():
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    app = create_app(config, sampler, midi, samples_dir)
+    app = create_app(config, sampler, midi, samples_dir, presets)
     log.info("Web UI: http://%s:%d", args.host, args.port)
     app.run(host=args.host, port=args.port, debug=args.debug, use_reloader=False, threaded=True)
 
