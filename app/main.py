@@ -57,11 +57,14 @@ def main():
 
     presets = PresetManager(Path(args.presets).resolve())
 
-    # If no pad has been manually mapped yet, auto-assign groups round-robin.
+    # Map groups to pads:
+    #  - on a fresh config (no existing mapping) → assign in dark→bright order
+    #  - if the pad range just expanded since last run → re-assign so the new
+    #    pads also get groups (the artist hasn't done a manual choice anyway)
     groups = sampler.list_groups()
-    if groups and not config.has_any_mapping():
-        config.auto_assign_groups(groups)
-        log.info("auto-assigned %d groups to pads", len(groups))
+    if groups and (not config.has_any_mapping() or config.range_expanded):
+        config.auto_assign_groups(groups, force=True)
+        log.info("auto-assigned %d groups across %d pads", len(groups), len(config.snapshot()["pads"]))
 
     midi = MidiListener(sampler, device_hint=args.midi_hint)
     midi.start()

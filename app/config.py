@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_NOTES = list(range(60, 72))  # C4..B4 — TouchMe Playtronica default range
+DEFAULT_NOTES = list(range(48, 72))  # C3..B4 — covers both TouchMe firmware ranges
+                                     # (C3 octave for default Drums mode, C4 for Chromatic)
 
 GLOBAL_DEFAULTS = {
     "master_volume": 1.0,
@@ -53,14 +54,30 @@ class Config:
         for k, v in GLOBAL_DEFAULTS.items():
             self._data.setdefault(k, v)
         pads = self._data.setdefault("pads", {})
+        # Track whether this migration is *adding* new pads to an already-mapped
+        # config — that means the pad range expanded since last run and we need
+        # to redistribute groups across the new pads too.
+        had_pads = bool(pads)
+        had_mapping = any(p.get("group") for p in pads.values())
+        added_new = False
         for n in DEFAULT_NOTES:
-            pad = pads.setdefault(str(n), dict(PAD_DEFAULTS))
+            if str(n) not in pads:
+                pads[str(n)] = dict(PAD_DEFAULTS)
+                if had_pads:
+                    added_new = True
+            pad = pads[str(n)]
             # drop legacy fields from prior schemas
             pad.pop("loop", None)
             pad.pop("file", None)
             for k, v in PAD_DEFAULTS.items():
                 pad.setdefault(k, v)
+        # Signal to main.py that we should reshuffle to cover the new range
+        self._range_expanded = bool(added_new and had_mapping)
         self._write_unlocked()
+
+    @property
+    def range_expanded(self) -> bool:
+        return getattr(self, "_range_expanded", False)
 
     def _write_unlocked(self):
         tmp = self.path.with_suffix(".tmp")
