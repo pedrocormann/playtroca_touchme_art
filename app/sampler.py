@@ -34,6 +34,14 @@ class Sampler:
         # Avoid picking the same sample twice in a row from the same group on
         # the same pad (when the group has >= 2 samples).
         self._last_pick_per_pad: dict[int, str] = {}
+        # Bag-shuffle per group: a shuffled queue of remaining samples. Each
+        # trigger pops one; we only re-shuffle when the bag is empty. This
+        # guarantees every sample in a group plays once before any can repeat —
+        # much stronger anti-repetition than the per-sample cooldown alone.
+        self._bag_per_group: dict[str, list[Path]] = {}
+        # Last sample popped from a group, used to avoid bag wrap-around
+        # collisions (so the same file isn't last of one bag and first of next).
+        self._last_from_group: dict[str, str] = {}
 
     # ── lifecycle ──────────────────────────────────────────────────────────
     def init(self):
@@ -102,15 +110,38 @@ class Sampler:
             self._sounds.clear()
 
     # ── playback ───────────────────────────────────────────────────────────
+    def _refill_bag(self, group: str, samples: list[Path]) -> list[Path]:
+        bag = list(samples)
+        random.shuffle(bag)
+        # Avoid wrap-around collision: if the last sample we played from this
+        # group is now the first one to come out (i.e. bag[-1] since we pop()),
+        # swap with another slot.
+        last = self._last_from_group.get(group)
+        if last and len(bag) > 1 and str(bag[-1]) == last:
+            # swap with the head to keep the same multiset, different order
+            bag[-1], bag[0] = bag[0], bag[-1]
+        return bag
+
     def _pick_sample(self, note: int, group: str) -> Path | None:
         samples = self.list_group_samples(group)
         if not samples:
             return None
         if len(samples) == 1:
             return samples[0]
-        last = self._last_pick_per_pad.get(note)
-        candidates = [s for s in samples if str(s) != last] or samples
-        return random.choice(candidates)
+        # Pop from the bag; refill (shuffle) when empty.
+        bag = self._bag_per_group.get(group)
+        if not bag:
+            bag = self._refill_bag(group, samples)
+            self._bag_per_group[group] = bag
+        sample = bag.pop()
+        # If somehow this pad just played the same file (rare, only when groups
+        # are tiny), peek for an alternative still in the bag.
+        last_pad = self._last_pick_per_pad.get(note)
+        if str(sample) == last_pad and bag:
+            alt = bag.pop()
+            bag.insert(0, sample)
+            sample = alt
+        return sample
 
     def _cancel_max_timer(self, note: int):
         t = self._max_play_timers.pop(note, None)
@@ -138,6 +169,7 @@ class Sampler:
             return
         self._last_sample_trigger[key] = now
         self._last_pick_per_pad[note] = key
+        self._last_from_group[group] = key
 
         sound = self._load(sample_path)
         if sound is None:
