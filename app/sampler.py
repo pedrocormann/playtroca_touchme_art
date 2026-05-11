@@ -44,13 +44,24 @@ class Sampler:
 
     # ── discovery ──────────────────────────────────────────────────────────
     def list_groups(self) -> list[str]:
+        """Return group names in the order written by build_samples.sh
+        (dark → bright). Falls back to alphabetical if the order file is missing."""
         if not self.samples_dir.exists():
             return []
-        out = []
-        for p in sorted(self.samples_dir.iterdir()):
-            if p.is_dir() and any(c.suffix.lower() in (".wav", ".ogg") for c in p.iterdir()):
-                out.append(p.name)
-        return out
+        present = {p.name for p in self.samples_dir.iterdir()
+                   if p.is_dir() and not p.name.startswith("_")
+                   and any(c.suffix.lower() in (".wav", ".ogg") for c in p.iterdir())}
+        order_file = self.samples_dir / "_order.txt"
+        ordered: list[str] = []
+        if order_file.exists():
+            for line in order_file.read_text().splitlines():
+                name = line.strip()
+                if name in present:
+                    ordered.append(name)
+                    present.discard(name)
+        # Append any groups not yet in the order file (newly added)
+        ordered.extend(sorted(present))
+        return ordered
 
     def list_group_samples(self, group: str) -> list[Path]:
         gdir = self.samples_dir / group

@@ -105,21 +105,39 @@ class Config:
         with self._lock:
             return any(p.get("group") for p in self._data.get("pads", {}).values())
 
-    def auto_assign_groups(self, groups: list[str], force: bool = False):
-        """Round-robin assign groups across all pads. By default a no-op if any
-        pad already has a manual mapping; pass force=True to overwrite."""
+    def auto_assign_groups(self, groups: list[str], force: bool = False,
+                           respect_order: bool = True):
+        """Map groups to pads. If respect_order is True (default), groups are
+        assumed to come in dark→bright order and are stretched across the pads
+        so low MIDI notes get dark groups and high notes get bright ones. If
+        False, groups are shuffled randomly and round-robined.
+
+        By default this is a no-op when any pad already has a manual mapping;
+        pass force=True to overwrite.
+        """
         if not groups:
             return
         with self._lock:
             existing = any(p.get("group") for p in self._data["pads"].values())
             if existing and not force:
                 return
-            import random as _r
-            shuffled = list(groups)
-            _r.shuffle(shuffled)
             notes = sorted(int(n) for n in self._data["pads"].keys())
+            n_pads = len(notes)
+            n_groups = len(groups)
+            if respect_order and n_groups > 1:
+                # Stretch groups across pads, preserving dark→bright ordering.
+                # Each pad i gets groups[round(i * (n_groups-1) / (n_pads-1))].
+                mapping = []
+                for i in range(n_pads):
+                    idx = round(i * (n_groups - 1) / max(1, n_pads - 1))
+                    mapping.append(groups[idx])
+            else:
+                import random as _r
+                shuffled = list(groups)
+                _r.shuffle(shuffled)
+                mapping = [shuffled[i % n_groups] for i in range(n_pads)]
             for i, n in enumerate(notes):
-                self._data["pads"][str(n)]["group"] = shuffled[i % len(shuffled)]
+                self._data["pads"][str(n)]["group"] = mapping[i]
             self._write_unlocked()
 
     # last-play (transient)

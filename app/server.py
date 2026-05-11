@@ -61,8 +61,11 @@ def create_app(config, sampler, midi_listener, samples_dir: Path) -> Flask:
 
     @app.route("/api/shuffle", methods=["POST"])
     def shuffle_groups():
+        data = request.get_json(silent=True) or {}
+        # Default: keep dark→bright ordering. Pass {"random": true} for chaos.
+        respect = not bool(data.get("random", False))
         groups = sampler.list_groups()
-        config.auto_assign_groups(groups, force=True)
+        config.auto_assign_groups(groups, force=True, respect_order=respect)
         return jsonify({"ok": True, "pads": config.snapshot()["pads"]})
 
     @app.route("/api/status", methods=["GET"])
