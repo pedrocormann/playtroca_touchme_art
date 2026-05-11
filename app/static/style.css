@@ -1,0 +1,152 @@
+:root {
+  --bg: #0e0e10;
+  --surface: #18181c;
+  --surface-2: #222229;
+  --ink: #f4f4f5;
+  --muted: #8b8b94;
+  --accent: #d9b56b;
+  --danger: #c8654c;
+  --ok: #7ac74f;
+  --radius: 10px;
+  font-size: 16px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 4rem;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 1.5rem 2rem 1rem;
+  border-bottom: 1px solid var(--surface-2);
+}
+header h1 {
+  margin: 0;
+  font-family: ui-serif, "Iowan Old Style", Georgia, serif;
+  font-weight: 500;
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+}
+.subtitle { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.9rem; }
+.status { text-align: right; font-size: 0.85rem; color: var(--muted); display: flex; flex-direction: column; gap: 0.2rem; }
+.status strong { color: var(--ink); }
+.dot {
+  display: inline-block;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--danger);
+  margin-right: 0.4rem;
+  transition: background 0.3s;
+}
+.dot.live { background: var(--ok); }
+
+.globals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) auto;
+  align-items: end;
+  gap: 1rem 1.5rem;
+  padding: 1rem 2rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--surface-2);
+}
+.globals .control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.globals label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.globals input[type=range] { width: 100%; }
+.globals output { font-variant-numeric: tabular-nums; color: var(--ink); font-size: 0.9rem; }
+
+button {
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid transparent;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius);
+  font: inherit;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+button.danger:hover { background: var(--danger); color: var(--bg); }
+button.primary { background: var(--accent); color: var(--bg); }
+
+main#pads {
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem 2rem;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.pad {
+  background: var(--surface);
+  border: 1px solid var(--surface-2);
+  border-radius: var(--radius);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  transition: border-color 0.15s;
+}
+.pad:hover { border-color: var(--surface-2); }
+.pad.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(217, 181, 107, 0.15); }
+.pad-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.pad-num { font-family: ui-monospace, monospace; color: var(--muted); font-size: 0.9rem; }
+.pad-name { font-family: ui-serif, Georgia, serif; font-size: 1rem; }
+
+.pad select, .pad input[type=range] {
+  width: 100%;
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--surface-2);
+  border-radius: 6px;
+  padding: 0.4rem;
+  font: inherit;
+}
+.pad select:focus { outline: 1px solid var(--accent); }
+
+.pad-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.pad-row label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+
+.pad-actions {
+  display: flex; gap: 0.5rem; margin-top: 0.3rem;
+}
+.pad-actions button { flex: 1; font-size: 0.85rem; padding: 0.4rem; }
+
+footer {
+  padding: 1rem 2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+footer code {
+  background: var(--surface-2);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 600px) {
+  header { flex-direction: column; align-items: flex-start; gap: 0.75rem; padding: 1rem; }
+  .status { text-align: left; }
+  .master { flex-direction: column; align-items: stretch; padding: 1rem; }
+  main#pads { padding: 1rem; grid-template-columns: 1fr; }
+}

@@ -1,0 +1,28 @@
+[Unit]
+Description=Playtronica TouchMe Art — MIDI sampler + config UI
+After=sound.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=piripak
+Group=audio
+WorkingDirectory=/opt/playtronica
+Environment=PYTHONUNBUFFERED=1
+Environment=SDL_AUDIODRIVER=alsa
+Environment=AUDIODEV=hw:Headphones
+ExecStart=/opt/playtronica/venv/bin/python /opt/playtronica/app/main.py \
+  --samples /opt/playtronica/samples/wav \
+  --config /opt/playtronica/app/config.json \
+  --host 0.0.0.0 --port 8080
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+# Audio works better without strict sandboxing — keep minimal hardening
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

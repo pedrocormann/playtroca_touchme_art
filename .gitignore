@@ -1,0 +1,35 @@
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Editors
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# Pure Data autosave/backup
+*.pd~
+*.pd-backup
+
+# Generated audio (built from samples/sources via tools/build_samples.sh)
+samples/wav/
+
+# Runtime config — lives on the Pi only, never committed
+app/config.json
+
+# Secrets / local config
+.env
+*.local
+
+# Logs
+*.log
