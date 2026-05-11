@@ -1,7 +1,13 @@
-"""JSON-backed config with thread-safe read/write."""
+"""JSON-backed config with thread-safe read/write.
+
+Each pad maps to a *group* (a directory of WAV samples). When the pad is
+triggered, the sampler picks a random sample from the group. The most recent
+choice is exposed via the API so the UI can show "tocando agora".
+"""
 from __future__ import annotations
 import json
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -10,16 +16,15 @@ DEFAULT_NOTES = list(range(60, 72))  # C4..B4 — TouchMe Playtronica default ra
 
 GLOBAL_DEFAULTS = {
     "master_volume": 1.0,
-    # ignore re-triggers of the same sample for this many seconds (prevents
-    # "remix at every touch" when visitors tap repeatedly)
+    # ignore re-triggers of the same sample for this many seconds
     "retrigger_cooldown_seconds": 2.0,
-    # when a pad is released (or max time hits), fade audio out over this many ms
+    # release fade-out duration in ms
     "release_fade_ms": 5000,
-    # hard cap on how long one playback can last, even if the visitor keeps holding
+    # hard cap on a single playback, even if the pad keeps being held
     "max_play_seconds": 20.0,
 }
 
-PAD_DEFAULTS = {"file": None, "volume": 1.0, "hold": True}
+PAD_DEFAULTS = {"group": None, "volume": 1.0, "hold": True}
 
 
 def default_config() -> dict[str, Any]:
@@ -33,6 +38,8 @@ class Config:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self._lock = threading.Lock()
+        # transient (not persisted) — last sample picked per pad, for the UI
+        self._last_play: dict[int, dict] = {}
         if not self.path.exists():
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self._data = default_config()
@@ -43,16 +50,14 @@ class Config:
         self._migrate_and_fill()
 
     def _migrate_and_fill(self):
-        # Ensure all global keys exist
         for k, v in GLOBAL_DEFAULTS.items():
             self._data.setdefault(k, v)
-        # Ensure each pad has all fields. We drop the legacy "loop" flag — the new
-        # behavior is "hold" (default True) which models the artist's spec: while
-        # the visitor touches, audio plays; on release, fade out.
         pads = self._data.setdefault("pads", {})
         for n in DEFAULT_NOTES:
             pad = pads.setdefault(str(n), dict(PAD_DEFAULTS))
+            # drop legacy fields from prior schemas
             pad.pop("loop", None)
+            pad.pop("file", None)
             for k, v in PAD_DEFAULTS.items():
                 pad.setdefault(k, v)
         self._write_unlocked()
@@ -94,3 +99,20 @@ class Config:
     def master_volume(self) -> float:
         with self._lock:
             return float(self._data.get("master_volume", 1.0))
+
+    # last-play (transient)
+    def set_last_play(self, note: int, sample: str, group: str | None):
+        with self._lock:
+            self._last_play[int(note)] = {
+                "sample": sample,
+                "group": group,
+                "at": time.time(),
+            }
+
+    def get_last_play(self, note: int) -> dict | None:
+        with self._lock:
+            return dict(self._last_play[note]) if note in self._last_play else None
+
+    def all_last_plays(self) -> dict[int, dict]:
+        with self._lock:
+            return {n: dict(v) for n, v in self._last_play.items()}

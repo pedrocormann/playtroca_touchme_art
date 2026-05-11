@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Playtronica Kiosk
+Comment=Open the TouchMe configuration UI fullscreen on login
+Exec=/usr/local/bin/playtronica-kiosk.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=false

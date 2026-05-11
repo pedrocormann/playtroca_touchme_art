@@ -1,7 +1,5 @@
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-function noteLabel(n) {
-  return `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
-}
+const noteLabel = (n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
 
 const padsEl = document.getElementById("pads");
 const midiNameEl = document.getElementById("midi-name");
@@ -17,7 +15,8 @@ const maxPlayEl = document.getElementById("max-play");
 const maxPlayOutEl = document.getElementById("max-play-out");
 const stopAllBtn = document.getElementById("stop-all");
 
-let SAMPLES = [];
+let GROUPS = [];
+let SAMPLES_BY_GROUP = {};
 
 const fmtSec = (s) => `${Number(s).toFixed(1)} s`;
 const fmtSecInt = (s) => `${Math.round(Number(s))} s`;
@@ -32,14 +31,18 @@ async function fetchJSON(url, opts) {
 async function refreshStatus() {
   try {
     const s = await fetchJSON("/api/status");
-    if (s.midi_port) {
-      midiNameEl.textContent = s.midi_port;
-      midiDotEl.classList.add("live");
-    } else {
-      midiNameEl.textContent = "TouchMe não conectada";
-      midiDotEl.classList.remove("live");
+    midiNameEl.textContent = s.midi_port || "TouchMe não conectada";
+    midiDotEl.classList.toggle("live", !!s.midi_port);
+    sampleCountEl.textContent = `${s.sample_count} samples · ${s.groups.length} grupos`;
+    // update "tocando agora" labels
+    for (const [n, lp] of Object.entries(s.last_plays || {})) {
+      const el = document.querySelector(`.pad[data-note="${n}"] .pad-now`);
+      if (el) {
+        const recent = lp && (Date.now() / 1000 - lp.at < 30);
+        el.textContent = lp ? lp.sample : "—";
+        el.classList.toggle("recent", !!recent);
+      }
     }
-    sampleCountEl.textContent = s.sample_count;
   } catch (e) { /* ignore */ }
 }
 
@@ -53,13 +56,29 @@ function buildPad(note, padCfg) {
   head.innerHTML = `<span class="pad-name">${noteLabel(note)}</span><span class="pad-num">note ${note}</span>`;
   wrap.appendChild(head);
 
+  // Group dropdown
   const select = document.createElement("select");
-  const optNone = new Option("— sem som —", "");
-  select.appendChild(optNone);
-  for (const s of SAMPLES) select.appendChild(new Option(s, s));
-  select.value = padCfg.file || "";
+  select.appendChild(new Option("— sem grupo —", ""));
+  for (const g of GROUPS) {
+    const count = (SAMPLES_BY_GROUP[g] || []).length;
+    select.appendChild(new Option(`${g}  ·  ${count} sons`, g));
+  }
+  select.value = padCfg.group || "";
   wrap.appendChild(select);
 
+  // "Tocando agora" line
+  const nowRow = document.createElement("div");
+  nowRow.className = "pad-row pad-now-row";
+  const nowLbl = document.createElement("span");
+  nowLbl.className = "pad-now-lbl";
+  nowLbl.textContent = "tocando agora:";
+  const now = document.createElement("span");
+  now.className = "pad-now";
+  now.textContent = padCfg.last_play ? padCfg.last_play.sample : "—";
+  nowRow.append(nowLbl, now);
+  wrap.appendChild(nowRow);
+
+  // Volume
   const volRow = document.createElement("div");
   volRow.className = "pad-row";
   const vol = document.createElement("input");
@@ -73,6 +92,7 @@ function buildPad(note, padCfg) {
   volRow.appendChild(volOut);
   wrap.appendChild(volRow);
 
+  // Hold
   const holdRow = document.createElement("div");
   holdRow.className = "pad-row";
   const hold = document.createElement("input");
@@ -82,10 +102,11 @@ function buildPad(note, padCfg) {
   holdRow.appendChild(holdLabel);
   wrap.appendChild(holdRow);
 
+  // Actions
   const actions = document.createElement("div");
   actions.className = "pad-actions";
   const testBtn = document.createElement("button");
-  testBtn.textContent = "▶ testar";
+  testBtn.textContent = "▶ testar (random do grupo)";
   actions.appendChild(testBtn);
   wrap.appendChild(actions);
 
@@ -95,27 +116,31 @@ function buildPad(note, padCfg) {
     body: JSON.stringify(patch),
   });
 
-  select.addEventListener("change", () => save({ file: select.value || null }));
-  vol.addEventListener("input", () => {
-    volOut.textContent = `${Math.round(vol.value * 100)}%`;
-  });
+  select.addEventListener("change", () => save({ group: select.value || null }));
+  vol.addEventListener("input", () => { volOut.textContent = `${Math.round(vol.value * 100)}%`; });
   vol.addEventListener("change", () => save({ volume: parseFloat(vol.value) }));
   hold.addEventListener("change", () => save({ hold: hold.checked }));
   testBtn.addEventListener("click", async () => {
     wrap.classList.add("active");
-    await fetchJSON(`/api/test/${note}`, { method: "POST" });
-    setTimeout(() => wrap.classList.remove("active"), 300);
+    const res = await fetchJSON(`/api/test/${note}`, { method: "POST" });
+    if (res?.last_play) {
+      now.textContent = res.last_play.sample;
+      now.classList.add("recent");
+    }
+    setTimeout(() => { wrap.classList.remove("active"); now.classList.remove("recent"); }, 600);
   });
 
   return wrap;
 }
 
 async function init() {
-  const [config, samplesRes] = await Promise.all([
+  const [config, gRes] = await Promise.all([
     fetchJSON("/api/config"),
-    fetchJSON("/api/samples"),
+    fetchJSON("/api/groups"),
   ]);
-  SAMPLES = samplesRes.samples;
+  GROUPS = gRes.groups;
+  SAMPLES_BY_GROUP = gRes.samples_by_group;
+
   masterEl.value = config.master_volume ?? 1;
   masterOutEl.textContent = `${Math.round((config.master_volume ?? 1) * 100)}%`;
   cooldownEl.value = config.retrigger_cooldown_seconds ?? 2;
@@ -124,11 +149,13 @@ async function init() {
   fadeMsOutEl.textContent = fmtMsAsSec(fadeMsEl.value);
   maxPlayEl.value = config.max_play_seconds ?? 20;
   maxPlayOutEl.textContent = fmtSecInt(maxPlayEl.value);
+
   padsEl.innerHTML = "";
   const notes = Object.keys(config.pads).map(Number).sort((a, b) => a - b);
   for (const n of notes) padsEl.appendChild(buildPad(n, config.pads[n]));
+
   refreshStatus();
-  setInterval(refreshStatus, 3000);
+  setInterval(refreshStatus, 1500);
 }
 
 function postGlobal(key, value) {
@@ -138,20 +165,14 @@ function postGlobal(key, value) {
   });
 }
 
-masterEl.addEventListener("input", () => {
-  masterOutEl.textContent = `${Math.round(masterEl.value * 100)}%`;
-});
+masterEl.addEventListener("input", () => { masterOutEl.textContent = `${Math.round(masterEl.value * 100)}%`; });
 masterEl.addEventListener("change", () => postGlobal("master_volume", parseFloat(masterEl.value)));
-
 cooldownEl.addEventListener("input", () => { cooldownOutEl.textContent = fmtSec(cooldownEl.value); });
 cooldownEl.addEventListener("change", () => postGlobal("retrigger_cooldown_seconds", parseFloat(cooldownEl.value)));
-
 fadeMsEl.addEventListener("input", () => { fadeMsOutEl.textContent = fmtMsAsSec(fadeMsEl.value); });
 fadeMsEl.addEventListener("change", () => postGlobal("release_fade_ms", parseFloat(fadeMsEl.value)));
-
 maxPlayEl.addEventListener("input", () => { maxPlayOutEl.textContent = fmtSecInt(maxPlayEl.value); });
 maxPlayEl.addEventListener("change", () => postGlobal("max_play_seconds", parseFloat(maxPlayEl.value)));
-
 stopAllBtn.addEventListener("click", () => fetchJSON("/api/stop", { method: "POST" }));
 
 init().catch(e => {

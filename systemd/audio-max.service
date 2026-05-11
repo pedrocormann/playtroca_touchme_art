@@ -1,0 +1,13 @@
+[Unit]
+Description=Lock ALSA volume at maximum
+After=sound.target
+DefaultDependencies=no
+RequiresMountsFor=/run
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '/usr/bin/amixer sset Master 100%% unmute 2>/dev/null || true; /usr/bin/amixer -c 1 sset PCM 100%% unmute 2>/dev/null || true; /usr/bin/amixer -c 1 sset Headphone 100%% unmute 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target

@@ -1,8 +1,12 @@
-"""Polyphonic sample player with per-sample retrigger lockout, hold-to-play,
-release fade-out, and a hard max-play cap."""
+"""Polyphonic sample player driven by groups of samples.
+
+A "group" is a subdirectory of samples_dir containing one or more .wav files.
+When a pad is triggered, a random sample is chosen from the configured group.
+Same retrigger lockout, hold-to-play, fade-out and max-play semantics apply.
+"""
 from __future__ import annotations
 import logging
-import threading
+import random
 import time
 from pathlib import Path
 from threading import Lock, Timer
@@ -22,64 +26,109 @@ class Sampler:
         self.config = config
         self._sounds: dict[str, pygame.mixer.Sound] = {}
         self._load_lock = Lock()
-        # Per-note state
         self._note_channels: dict[int, pygame.mixer.Channel] = {}
         self._max_play_timers: dict[int, Timer] = {}
-        # Per-sample state (retrigger lockout shared across pads playing same file)
+        # Retrigger lockout keyed by sample path so the same sample can't replay
+        # within cooldown even if triggered from a different pad.
         self._last_sample_trigger: dict[str, float] = {}
+        # Avoid picking the same sample twice in a row from the same group on
+        # the same pad (when the group has >= 2 samples).
+        self._last_pick_per_pad: dict[int, str] = {}
 
+    # ── lifecycle ──────────────────────────────────────────────────────────
     def init(self):
         pygame.mixer.pre_init(frequency=SAMPLE_RATE, size=-16, channels=2, buffer=BUFFER_SIZE)
         pygame.mixer.init()
         pygame.mixer.set_num_channels(NUM_CHANNELS)
         log.info("Sampler initialized: %d Hz, %d channels", SAMPLE_RATE, NUM_CHANNELS)
 
-    def list_samples(self) -> list[str]:
+    # ── discovery ──────────────────────────────────────────────────────────
+    def list_groups(self) -> list[str]:
         if not self.samples_dir.exists():
             return []
-        return sorted(p.name for p in self.samples_dir.iterdir() if p.suffix.lower() in (".wav", ".ogg"))
+        out = []
+        for p in sorted(self.samples_dir.iterdir()):
+            if p.is_dir() and any(c.suffix.lower() in (".wav", ".ogg") for c in p.iterdir()):
+                out.append(p.name)
+        return out
 
-    def _load(self, filename: str) -> pygame.mixer.Sound | None:
+    def list_group_samples(self, group: str) -> list[Path]:
+        gdir = self.samples_dir / group
+        if not gdir.is_dir():
+            return []
+        return sorted(p for p in gdir.iterdir() if p.suffix.lower() in (".wav", ".ogg"))
+
+    def total_sample_count(self) -> int:
+        return sum(len(self.list_group_samples(g)) for g in self.list_groups())
+
+    # ── audio cache ────────────────────────────────────────────────────────
+    def _load(self, path: Path) -> pygame.mixer.Sound | None:
+        key = str(path)
         with self._load_lock:
-            if filename in self._sounds:
-                return self._sounds[filename]
-            path = self.samples_dir / filename
+            if key in self._sounds:
+                return self._sounds[key]
             if not path.exists():
                 log.warning("Sample missing: %s", path)
                 return None
             try:
-                sound = pygame.mixer.Sound(str(path))
+                sound = pygame.mixer.Sound(key)
             except pygame.error as exc:
                 log.error("Failed to load %s: %s", path, exc)
                 return None
-            self._sounds[filename] = sound
+            self._sounds[key] = sound
             return sound
 
     def preload_all(self):
-        for name in self.list_samples():
-            self._load(name)
-        log.info("Preloaded %d samples", len(self._sounds))
+        count = 0
+        for group in self.list_groups():
+            for sample in self.list_group_samples(group):
+                if self._load(sample) is not None:
+                    count += 1
+        log.info("Preloaded %d samples across %d groups", count, len(self.list_groups()))
+
+    def invalidate(self):
+        with self._load_lock:
+            self._sounds.clear()
+
+    # ── playback ───────────────────────────────────────────────────────────
+    def _pick_sample(self, note: int, group: str) -> Path | None:
+        samples = self.list_group_samples(group)
+        if not samples:
+            return None
+        if len(samples) == 1:
+            return samples[0]
+        last = self._last_pick_per_pad.get(note)
+        candidates = [s for s in samples if str(s) != last] or samples
+        return random.choice(candidates)
 
     def _cancel_max_timer(self, note: int):
         t = self._max_play_timers.pop(note, None)
         if t is not None:
             t.cancel()
 
-    def play_note(self, note: int, velocity: int = 127):
+    def play_note(self, note: int, velocity: int = 127, forced_group: str | None = None):
         pad = self.config.pad(note)
-        filename = pad.get("file")
-        if not filename:
+        group = forced_group or pad.get("group")
+        if not group:
             return
-        # Retrigger lockout (per sample, shared across pads playing the same file)
+
+        sample_path = self._pick_sample(note, group)
+        if sample_path is None:
+            log.debug("group %r is empty for pad %d", group, note)
+            return
+
+        # Retrigger lockout: per-sample
         cooldown = float(self.config.get_global("retrigger_cooldown_seconds", 2.0))
         now = time.monotonic()
-        last = self._last_sample_trigger.get(filename, 0.0)
+        key = str(sample_path)
+        last = self._last_sample_trigger.get(key, 0.0)
         if now - last < cooldown:
-            log.debug("retrigger lockout: %s (%.2fs left)", filename, cooldown - (now - last))
+            log.debug("retrigger lockout: %s (%.2fs left)", sample_path.name, cooldown - (now - last))
             return
-        self._last_sample_trigger[filename] = now
+        self._last_sample_trigger[key] = now
+        self._last_pick_per_pad[note] = key
 
-        sound = self._load(filename)
+        sound = self._load(sample_path)
         if sound is None:
             return
 
@@ -90,7 +139,6 @@ class Sampler:
         hold = bool(pad.get("hold", True))
         loops = -1 if hold else 0
 
-        # Stop any previous voice on this note (no fade — we're retriggering)
         prev = self._note_channels.get(note)
         if prev is not None and prev.get_busy():
             prev.stop()
@@ -100,7 +148,11 @@ class Sampler:
         if channel is None:
             return
         self._note_channels[note] = channel
-        log.debug("play note=%d file=%s vol=%.2f hold=%s", note, filename, vol, hold)
+
+        # Record for UI display
+        self.config.set_last_play(note, sample_path.name, group)
+        log.info("play note=%d group=%s sample=%s vol=%.2f hold=%s",
+                 note, group, sample_path.name, vol, hold)
 
         # Schedule auto-fadeout at max_play_seconds
         max_play = float(self.config.get_global("max_play_seconds", 20.0))
@@ -111,7 +163,7 @@ class Sampler:
         self._max_play_timers[note] = timer
 
     def release_note(self, note: int):
-        """Called on MIDI note_off — fade out only for pads in hold mode."""
+        """Called on MIDI note_off — fade out only when pad is in hold mode."""
         pad = self.config.pad(note)
         if not pad.get("hold", True):
             return
@@ -130,13 +182,6 @@ class Sampler:
 
     def stop_all(self):
         pygame.mixer.stop()
-        for note, t in list(self._max_play_timers.items()):
+        for t in list(self._max_play_timers.values()):
             t.cancel()
         self._max_play_timers.clear()
-
-    def invalidate(self, filename: str | None = None):
-        with self._load_lock:
-            if filename is None:
-                self._sounds.clear()
-            else:
-                self._sounds.pop(filename, None)
