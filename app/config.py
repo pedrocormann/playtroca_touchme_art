@@ -100,6 +100,28 @@ class Config:
         with self._lock:
             return float(self._data.get("master_volume", 1.0))
 
+    # auto-assignment of groups to pads
+    def has_any_mapping(self) -> bool:
+        with self._lock:
+            return any(p.get("group") for p in self._data.get("pads", {}).values())
+
+    def auto_assign_groups(self, groups: list[str], force: bool = False):
+        """Round-robin assign groups across all pads. By default a no-op if any
+        pad already has a manual mapping; pass force=True to overwrite."""
+        if not groups:
+            return
+        with self._lock:
+            existing = any(p.get("group") for p in self._data["pads"].values())
+            if existing and not force:
+                return
+            import random as _r
+            shuffled = list(groups)
+            _r.shuffle(shuffled)
+            notes = sorted(int(n) for n in self._data["pads"].keys())
+            for i, n in enumerate(notes):
+                self._data["pads"][str(n)]["group"] = shuffled[i % len(shuffled)]
+            self._write_unlocked()
+
     # last-play (transient)
     def set_last_play(self, note: int, sample: str, group: str | None):
         with self._lock:

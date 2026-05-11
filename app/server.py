@@ -59,6 +59,12 @@ def create_app(config, sampler, midi_listener, samples_dir: Path) -> Flask:
         sampler.stop_all()
         return jsonify({"ok": True})
 
+    @app.route("/api/shuffle", methods=["POST"])
+    def shuffle_groups():
+        groups = sampler.list_groups()
+        config.auto_assign_groups(groups, force=True)
+        return jsonify({"ok": True, "pads": config.snapshot()["pads"]})
+
     @app.route("/api/status", methods=["GET"])
     def status():
         last = config.all_last_plays()

@@ -48,6 +48,12 @@ def main():
     sampler.init()
     sampler.preload_all()
 
+    # If no pad has been manually mapped yet, auto-assign groups round-robin.
+    groups = sampler.list_groups()
+    if groups and not config.has_any_mapping():
+        config.auto_assign_groups(groups)
+        log.info("auto-assigned %d groups to pads", len(groups))
+
     midi = MidiListener(sampler, device_hint=args.midi_hint)
     midi.start()
 

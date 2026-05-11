@@ -69,6 +69,8 @@ header h1 {
 }
 .globals input[type=range] { width: 100%; }
 .globals output { font-variant-numeric: tabular-nums; color: var(--ink); font-size: 0.9rem; }
+.globals-buttons { display: flex; flex-direction: column; gap: 0.5rem; align-self: end; }
+.globals-buttons button { white-space: nowrap; }
 
 button {
   background: var(--surface-2);

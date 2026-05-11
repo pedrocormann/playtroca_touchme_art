@@ -175,6 +175,12 @@ maxPlayEl.addEventListener("input", () => { maxPlayOutEl.textContent = fmtSecInt
 maxPlayEl.addEventListener("change", () => postGlobal("max_play_seconds", parseFloat(maxPlayEl.value)));
 stopAllBtn.addEventListener("click", () => fetchJSON("/api/stop", { method: "POST" }));
 
+document.getElementById("shuffle-groups").addEventListener("click", async () => {
+  if (!confirm("Embaralhar grupos entre os 12 pads? A configuração atual será substituída.")) return;
+  await fetchJSON("/api/shuffle", { method: "POST" });
+  init();
+});
+
 init().catch(e => {
   padsEl.innerHTML = `<p style="color:#c8654c">Erro ao carregar: ${e.message}</p>`;
 });

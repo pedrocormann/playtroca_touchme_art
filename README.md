@@ -1,88 +1,141 @@
-# Playtronica TouchMe Art — Osvaldinho
+# Playtronica TouchMe Art
 
-Sistema para obra interativa: visitantes tocam fios de cobre que saem de pedras com circuitos. A [TouchMe da Playtronica](https://playtronica.com/products/touchme) capta o toque como MIDI, e o Raspberry Pi dispara samples de áudio através do fone/sistema de som.
+> A small interactive sound system built in ~2 hours for the artist
+> **[Osvaldo Eugênio (@osvaldin_the_cre8tor_iltda_)](https://www.instagram.com/osvaldin_the_cre8tor_iltda_/)**,
+> for the exhibition **"Vai Tomando"** at **Museu Futuros**, Rio de Janeiro.
 
-## Arquitetura
+Visitors touch copper wires running out of stones that the artist embedded with
+circuits as aesthetic interventions. A [Playtronica TouchMe](https://playtronica.com/products/touchme)
+reads the capacitive contact and emits MIDI; a Raspberry Pi running this code
+translates each touch into one of many short audio fragments curated by the
+artist, organized into groups (textural / percussive / breath / etc.).
+
+The mapping from pad → group is randomized: every reboot (and on demand) the
+algorithm shuffles which sound family responds to which sensor, so the piece
+never sounds the same way twice. Within a group, the played sample is also
+randomly selected, but the same sample won't repeat too quickly.
+
+## Architecture
 
 ```
- fio de cobre (toque humano)  →  TouchMe (USB-MIDI)  →  Raspberry Pi 4
-                                                            │
-                                                  ┌─────────┴──────────┐
-                                                  │                    │
-                                          midi_listener.py      Flask (porta 8080)
-                                                  │                    │
-                                                  ▼                    ▼
-                                              sampler.py         config UI / API
-                                          (pygame.mixer)               │
-                                                  │                    │
-                                                  ▼                    │
-                                          jack 3.5mm fone   ◄──────────┘
-                                                            config.json
+ copper wire (visitor touch)  →  TouchMe (USB MIDI)  →  Raspberry Pi 4
+                                                          │
+                                                ┌─────────┴──────────┐
+                                                │                    │
+                                        midi_listener.py      Flask (port 8080)
+                                                │                    │
+                                                ▼                    ▼
+                                          sampler.py          config UI / API
+                                       (pygame.mixer)                │
+                                                │                    │
+                                                ▼                    │
+                                       3.5 mm jack  ←─ headphones / PA system
+                                                          ▲
+                                                          │
+                                                       config.json
 ```
 
-Um único processo Python orquestra:
+A single Python process orchestrates:
 
-- **midi_listener** — escuta a TouchMe via ALSA MIDI, dispara `play_note` / `release_note`
-- **sampler** — `pygame.mixer` polifônico (16 canais), com retrigger lockout, hold-to-play, fade-out e cap de duração
-- **server** — Flask serve a UI em `http://<ip-do-pi>:8080`, persistindo mudanças em `config.json`
+- **midi_listener** — listens to the TouchMe over ALSA MIDI, dispatches
+  `play_note` / `release_note`
+- **sampler** — polyphonic `pygame.mixer` (16 channels) with per-sample
+  retrigger lockout, hold-to-play, release fade-out, and a hard cap on
+  per-touch duration
+- **server** — Flask UI on `http://<pi-ip>:8080` for live tuning of all
+  parameters; configuration persists in `config.json`
 
-O serviço sobe automaticamente no boot via systemd. Não há display obrigatório — toda configuração é feita pela rede.
+The service starts automatically on boot through systemd; the Pi also boots
+straight into Chromium fullscreen showing the configuration UI. No display is
+required to run the installation — every parameter is reachable over the LAN.
 
-## Comportamento
+## Behavior
 
-- **hold-to-play** (default ligado): enquanto o visitante toca, o áudio toca em loop; ao soltar, fade-out
-- **retrigger lockout**: o mesmo sample não dispara de novo se o anterior aconteceu há menos de N segundos (configurável; default 2 s)
-- **fade-out ao soltar**: default 5 s
-- **duração máxima por toque**: default 20 s (mesmo se o visitante segurar mais tempo)
+- **groups of samples**: each TouchMe pad is assigned to a *group* (a folder of
+  short WAVs). When the pad fires, one sample is picked at random from the
+  group; consecutive picks on the same pad avoid repeating the previous sample.
+- **automatic mapping**: on first run (and via the *Shuffle groups* button) the
+  app round-robins all available groups across the 12 pads, with a random
+  permutation. The artist never has to manually wire pad → sample.
+- **hold-to-play** (default on): while the visitor is touching, audio plays;
+  on release it fades out over 5 s.
+- **retrigger lockout**: the same sample cannot fire again within N seconds
+  (default 2 s) — prevents nervous "remixing" when visitors tap rapidly.
+- **per-touch cap**: a single playback never exceeds 20 s, even if the visitor
+  keeps holding (auto fade-out at the cap).
+- **always at maximum volume**: a dedicated `audio-max.service` raises Master,
+  PCM and Headphone to 100 % on every boot.
 
-Tudo isso é ajustável em tempo real pela UI.
+All of the above is live-editable in the web UI.
 
-## Setup inicial no Raspberry Pi
+## Sample pipeline
 
-A partir de um Pi 4 com Raspberry Pi OS Bookworm, usuário `piripak`, na mesma rede Wi-Fi do Mac de desenvolvimento:
+Drop source files (any of `mp3`, `wav`, `flac`, `ogg`, `m4a`, `aac`, `opus`)
+into `samples/sources/<group>/`. The build script:
+
+1. trims leading and trailing silence (≥ 0.3 s under −45 dB)
+2. resamples to 44.1 kHz / 16-bit stereo
+3. splits into 30-second chunks (configurable via `CHUNK_SECONDS`)
+4. applies a 50 ms fade-in on each chunk to avoid clicks
+
+Output lands in `samples/wav/<group>/<source-stem>_NNN.wav`. The script is
+idempotent — sources whose first chunk is newer than the source are skipped.
+
+## Deploy
 
 ```bash
-# (no Mac) gerar chave SSH e copiar pro Pi
-ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_playtronica
-ssh-copy-id -i ~/.ssh/id_ed25519_playtronica.pub piripak@<ip-do-pi>
-
-# (no Mac) configurar ~/.ssh/config com o alias "playtronica"
-# Host playtronica
-#   HostName <ip-do-pi>
-#   User piripak
-#   IdentityFile ~/.ssh/id_ed25519_playtronica
-
-# (no Mac) deploy completo: rsync + install + systemd enable + restart
-tools/deploy.sh
+# from your laptop, with SSH access to the Pi configured as the "playtronica"
+# host in your ~/.ssh/config:
+tools/deploy.sh           # rsync code + samples, build chunks, restart service
+tools/deploy.sh --code    # code only (skip the audio sources; faster iteration)
 ```
 
-Após o primeiro deploy, o serviço está rodando e configurado pra subir automaticamente em todo boot do Pi.
+`tools/install_pi.sh` runs on the Pi each deploy and is idempotent. It:
 
-## Adicionar / trocar samples
+- installs the system packages (`puredata`, `ffmpeg`, `python3-pygame`,
+  `python3-rtmidi`, `python3-flask`)
+- creates a venv at `/opt/playtronica/venv` inheriting the apt-installed
+  C-extensions, then `pip install mido`
+- builds the sample chunks
+- installs `playtronica.service` (the app) and `audio-max.service`
+- installs the kiosk autostart entry under `~/.config/autostart/`
+- disables screen blanking
 
-1. Coloca novos arquivos em `samples/sources/` (mp3, wav, ogg, m4a, flac, aac)
-2. Roda `tools/deploy.sh` (sincroniza + converte para wav no Pi + restart)
-3. Abre a UI no navegador (celular/laptop na mesma rede): `http://<ip-do-pi>:8080`
-4. Pra cada pad da TouchMe, escolhe o sample no menu
-
-A conversão é idempotente — só re-converte se a fonte é mais nova.
-
-## Reconfigurar a TouchMe
-
-Por padrão a TouchMe envia **notas MIDI** (note on/off por pad). Pra mudar pra modo CC (intensidade do toque como sinal contínuo), use o software [PlayDuo da Playtronica](https://playtronica.com) plugando a TouchMe direto em um computador. Depois reconecta no Pi. Suporte a CC mode no app está planejado para V2.
-
-## Comandos úteis
+## Useful commands on the Pi
 
 ```bash
-ssh playtronica                              # SSH no Pi
-ssh playtronica 'sudo journalctl -u playtronica -f'   # logs em tempo real
-ssh playtronica 'sudo systemctl restart playtronica'  # restart
-ssh playtronica 'amixer set Master 85%'      # ajustar volume global ALSA
+sudo journalctl -u playtronica -f      # live logs from the sampler
+sudo systemctl restart playtronica     # restart the service
+pkill chromium                         # exit the kiosk; desktop returns
+sudo amixer sset Master 100% unmute    # re-apply max volume (audio-max also does this)
 ```
+
+## Hardware
+
+- Raspberry Pi 4 Model B (4 GB) — Raspberry Pi OS Bookworm
+- Playtronica TouchMe — USB MIDI (class compliant), 12 capacitive inputs
+- Audio out: 3.5 mm jack (`card 1: bcm2835 Headphones`)
+- Display optional (only needed at install time; the kiosk uses it if present)
 
 ## Stack
 
-- Raspberry Pi 4 Model B (4 GB) · Raspberry Pi OS Bookworm
-- Python 3.11 · Flask · mido · python-rtmidi · pygame.mixer
-- ffmpeg (mp3 → wav) · ALSA (saída jack 3.5 mm)
-- systemd para autostart
+Python 3.11 · Flask · `mido` · `python-rtmidi` · `pygame.mixer` · `ffmpeg` ·
+ALSA · systemd · Chromium kiosk.
+
+## Roadmap (V2)
+
+- TouchMe in **CC mode** (continuous capacitance instead of discrete notes),
+  reconfigured via Playtronica's PlayDuo desktop app, mapped to real-time
+  volume / parameter modulation
+- real-time effects chain (filter / saturation / reverb), e.g. via `pyo` or
+  Pure Data (Pd is already installed on the Pi as a fallback engine)
+- per-group dynamics (loudness normalization, per-group gain)
+- multi-Pi sync for spatialized stones across a larger room
+
+## Credits
+
+Software, sampler design and Pi setup: **[Pedro Cormann](https://github.com/pedrocormann) (Unflat Studio)**,
+with assistance from Claude Code. Original audio material, conceptual direction
+and stone-and-copper sculpture: **Osvaldo Eugênio**.
+
+Built in May 2026 — about two hours from empty repo to working installation.
