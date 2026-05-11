@@ -170,71 +170,15 @@ maxPlayEl.addEventListener("change", () => postGlobal("max_play_seconds", parseF
 stopAllBtn.addEventListener("click", () => fetchJSON("/api/stop", { method: "POST" }));
 
 document.getElementById("shuffle-groups").addEventListener("click", async () => {
-  if (!confirm("Embaralhar grupos entre os 12 pads? A configuração atual será substituída.")) return;
+  if (!confirm("Embaralhar grupos entre os 24 pads? A configuração atual será substituída.")) return;
   await fetchJSON("/api/shuffle", { method: "POST" });
   init();
 });
 
-// ── Presets ────────────────────────────────────────────────────────────
-const presetsListEl = document.getElementById("presets-list");
-
-async function refreshPresets() {
-  try {
-    const { presets } = await fetchJSON("/api/presets");
-    presetsListEl.innerHTML = "";
-    if (!presets.length) {
-      presetsListEl.innerHTML = `<p class="presets-empty">Nenhuma configuração salva ainda. Ajuste os sliders acima e clique em <em>Salvar configurações</em>.</p>`;
-      return;
-    }
-    for (const p of presets) {
-      const card = document.createElement("div");
-      card.className = "preset";
-      const v = p.values || {};
-      card.innerHTML = `
-        <div class="preset-head">
-          <span class="preset-name">${p.name}</span>
-          <span class="preset-meta">${new Date(p.saved_at * 1000).toLocaleString("pt-BR")}</span>
-        </div>
-        <div class="preset-values">
-          <span>lockout <strong>${(v.retrigger_cooldown_seconds ?? 0).toFixed(1)}s</strong></span>
-          <span>fade <strong>${((v.release_fade_ms ?? 0) / 1000).toFixed(1)}s</strong></span>
-          <span>max <strong>${Math.round(v.max_play_seconds ?? 0)}s</strong></span>
-        </div>
-        <div class="preset-actions">
-          <button class="primary load-btn">aplicar</button>
-          <button class="danger delete-btn">remover</button>
-        </div>`;
-      card.querySelector(".load-btn").addEventListener("click", async () => {
-        await fetchJSON(`/api/presets/${encodeURIComponent(p.name)}/load`, { method: "POST" });
-        init();
-      });
-      card.querySelector(".delete-btn").addEventListener("click", async () => {
-        if (!confirm(`Remover "${p.name}"?`)) return;
-        await fetchJSON(`/api/presets/${encodeURIComponent(p.name)}`, { method: "DELETE" });
-        refreshPresets();
-      });
-      presetsListEl.appendChild(card);
-    }
-  } catch (e) { /* ignore */ }
-}
-
-document.getElementById("save-preset").addEventListener("click", async () => {
-  const res = await fetchJSON("/api/presets", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({}),
-  });
-  if (res?.preset?.name) {
-    // small visual ping
-    const btn = document.getElementById("save-preset");
-    const orig = btn.textContent;
-    btn.textContent = `✓ salvo como ${res.preset.name}`;
-    setTimeout(() => { btn.textContent = orig; }, 1500);
-  }
-  refreshPresets();
-});
-
-refreshPresets();
+// Note: every slider/dropdown change persists immediately to config.json via
+// the change-event handlers above. There's no explicit "save" — edits ARE the
+// save. The preset API endpoints stay around for advanced/CLI use, but the
+// kiosk UI doesn't surface them anymore.
 
 init().catch(e => {
   padsEl.innerHTML = `<p style="color:#c8654c">Erro ao carregar: ${e.message}</p>`;
